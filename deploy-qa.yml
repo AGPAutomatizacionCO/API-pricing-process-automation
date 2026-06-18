@@ -1,0 +1,71 @@
+name: Build and Push Pricing Docker Image
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  REGISTRY_NAME: agpcolit
+  LOGIN_SERVER: agpcolit-abh2b3a5cvf7apcs.azurecr.io
+  IMAGE_NAME: pricing_process_automation
+  APP_NAME: pricing-process-automation
+  RESOURCE_GROUP: AGP-Colombia
+  IMAGE_TAG: qa
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout API repo
+        uses: actions/checkout@v4
+
+      - name: Checkout Maria frontend repo
+        uses: actions/checkout@v4
+        with:
+          repository: AGP-Corp/pricing-process-automation
+          token: ${{ secrets.GH_PAT_MARIA_REPO }}
+          path: maria-frontend
+
+      - name: Copy Maria frontend into API frontend folder
+        run: |
+          mkdir -p frontend
+          cp maria-frontend/pricing_vidrio_laminado_v4_50.html frontend/index.html
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to ACR
+        run: az acr login --name ${{ env.REGISTRY_NAME }}
+
+      - name: Build and push Docker image
+        run: |
+          FULL_IMAGE=${{ env.LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          docker build -t $FULL_IMAGE .
+          docker push $FULL_IMAGE
+          echo "FULL_IMAGE=$FULL_IMAGE" >> $GITHUB_ENV
+
+      - name: Configure App Service container
+        run: |
+          az webapp config container set \
+            --name ${{ env.APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --container-image-name $FULL_IMAGE \
+            --container-registry-url https://${{ env.LOGIN_SERVER }}
+
+      - name: Configure App Service port
+        run: |
+          az webapp config appsettings set \
+            --name ${{ env.APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --settings WEBSITES_PORT=80

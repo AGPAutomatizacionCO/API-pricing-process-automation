@@ -1,2 +1,2 @@
-# API-pricing-process-automation-
-base API interna para consultas controladas a bases de datos empresariales, manejo seguro de secretos mediante Azure Key Vault y httpOnly back py y front React
+# API-AGP_FINANZAS_PRICING-PROCESS-AUTOMATION
+Api para la integracion de el modelo DDP del area de pricing para soluciones internas de despligue local
