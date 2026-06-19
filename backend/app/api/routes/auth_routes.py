@@ -1,18 +1,11 @@
-from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Request
 
 from app.core.access_control import require_user_in_access_list
 from app.core.audit_logger import (
     build_request_audit_data,
     write_audit_event,
 )
-from app.core.session import (
-    create_opaque_session,
-    destroy_session_from_request,
-    get_session_from_request,
-    public_session_payload,
-)
-from app.core.session import validate_microsoft_id_token
+from app.core.easy_auth import get_authenticated_user
 
 
 router = APIRouter(
@@ -21,75 +14,50 @@ router = APIRouter(
 )
 
 
-class AuthSessionRequest(BaseModel):
-    id_token: str
-
-
-@router.post("/session")
-def create_session(
-    payload: AuthSessionRequest,
-    request: Request,
-    response: Response,
-):
+@router.get("/me")
+def get_current_user(request: Request):
     try:
-        claims = validate_microsoft_id_token(payload.id_token)
+        user = get_authenticated_user(request)
+        access_user = require_user_in_access_list(user["email"])
 
-        username = (
-            claims.get("preferred_username")
-            or claims.get("email")
-            or claims.get("upn")
-        )
-
-        if not username:
-            raise HTTPException(
-                status_code=401,
-                detail="Username not found in token.",
-            )
-
-        access_user = require_user_in_access_list(username)
-
-        user = {
-            "username": username.lower(),
-            "email": username.lower(),
-            "name": claims.get("name"),
+        response_user = {
+            "username": user["email"],
+            "email": user["email"],
+            "name": user.get("name"),
             "role": access_user["role"],
+            "auth_provider": user.get("auth_provider"),
         }
-
-        session_data = create_opaque_session(
-            response=response,
-            user=user,
-        )
 
         write_audit_event(
             category="auth",
-            event_type="SESSION_CREATED",
+            event_type="AUTH_ME_ACCESSED",
             result="SUCCESS",
-            user=user,
+            user=response_user,
             request_data=build_request_audit_data(request),
             resource={
-                "resource_type": "auth_session",
+                "resource_type": "auth_user",
+                "resource_name": "/auth/me",
             },
             details={
-                "message": "Backend session created.",
+                "message": "Authenticated user resolved from Easy Auth.",
             },
         )
 
         return {
             "status": "ok",
-            "session": public_session_payload(session_data),
+            "user": response_user,
         }
 
     except HTTPException as exc:
-        event_category = "access_denied" if exc.status_code in [401, 403] else "errors"
-
         write_audit_event(
-            category=event_category,
-            event_type="SESSION_CREATE_BLOCKED",
+            category="access_denied",
+            event_type="AUTH_ME_DENIED",
             result="FAILED",
             user=None,
             request_data=build_request_audit_data(request),
             resource={
-                "resource_type": "auth_session",
+                "resource_type": "auth_user",
+                "resource_name": "/auth/me",
             },
             details={
                 "status_code": exc.status_code,
@@ -99,84 +67,19 @@ def create_session(
 
         raise exc
 
-    except Exception as exc:
-        write_audit_event(
-            category="errors",
-            event_type="SESSION_CREATE_ERROR",
-            result="FAILED",
-            user=None,
-            request_data=build_request_audit_data(request),
-            resource={
-                "resource_type": "auth_session",
-            },
-            details={
-                "message": str(exc),
-            },
-        )
-
-        raise HTTPException(
-            status_code=500,
-            detail="Unexpected authentication error.",
-        )
-
-
-@router.get("/me")
-def get_current_user(request: Request):
-    session = get_session_from_request(request)
-
-    return {
-        "status": "ok",
-        "session": public_session_payload(session),
-    }
-
-
-@router.post("/logout")
-def logout(
-    request: Request,
-    response: Response,
-):
-    session = None
-
-    try:
-        session = get_session_from_request(request)
-    except Exception:
-        session = None
-
-    destroy_session_from_request(
-        request=request,
-        response=response,
-    )
-
-    write_audit_event(
-        category="auth",
-        event_type="SESSION_CLOSED",
-        result="SUCCESS",
-        user=session,
-        request_data=build_request_audit_data(request),
-        resource={
-            "resource_type": "auth_session",
-        },
-        details={
-            "message": "Backend session closed.",
-        },
-    )
-
-    return {
-        "status": "ok",
-        "message": "Session closed",
-    }
-
 
 @router.get("/test-protected")
 def test_protected(request: Request):
-    session = get_session_from_request(request)
+    user = get_authenticated_user(request)
+    access_user = require_user_in_access_list(user["email"])
 
     return {
         "status": "ok",
         "user": {
-            "username": session.get("username"),
-            "email": session.get("email"),
-            "name": session.get("name"),
-            "role": session.get("role"),
+            "username": user["email"],
+            "email": user["email"],
+            "name": user.get("name"),
+            "role": access_user["role"],
+            "auth_provider": user.get("auth_provider"),
         },
     }

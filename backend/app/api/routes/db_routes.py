@@ -1,8 +1,14 @@
 from fastapi import APIRouter, HTTPException, Request
 
-from app.core.access_control import require_roles
-from app.core.audit_logger import build_request_audit_data, write_audit_event
-from app.core.session import get_session_from_request
+from app.core.access_control import (
+    require_roles,
+    require_user_in_access_list,
+)
+from app.core.audit_logger import (
+    build_request_audit_data,
+    write_audit_event,
+)
+from app.core.easy_auth import get_authenticated_user
 from app.services.database_service import (
     list_databases,
     list_tables,
@@ -10,19 +16,36 @@ from app.services.database_service import (
 )
 
 
-router = APIRouter(prefix="/api/db", tags=["database"])
+router = APIRouter(
+    prefix="/api/db",
+    tags=["database"],
+)
 
 
 def require_authenticated_viewer(request: Request) -> dict:
-    session = get_session_from_request(request)
-    require_roles(session, ["ADMIN", "ANALYST", "VIEWER"])
-    return session
+    user = get_authenticated_user(request)
+
+    access_user = require_user_in_access_list(
+        user["email"]
+    )
+
+    authenticated_user = {
+        **user,
+        "role": access_user["role"],
+    }
+
+    require_roles(
+        authenticated_user,
+        ["ADMIN", "ANALYST", "VIEWER"],
+    )
+
+    return authenticated_user
 
 
 def audit_access(
     *,
     request: Request,
-    session: dict,
+    user: dict,
     event_type: str,
     result: str,
     resource_name: str,
@@ -32,7 +55,7 @@ def audit_access(
         category="audit",
         event_type=event_type,
         result=result,
-        user=session,
+        user=user,
         request_data=build_request_audit_data(request),
         resource={
             "resource_type": "database_api",
@@ -44,14 +67,14 @@ def audit_access(
 
 @router.get("/test")
 def api_test_database_connection(request: Request):
-    session = require_authenticated_viewer(request)
+    user = require_authenticated_viewer(request)
 
     try:
         data = test_database_connection()
 
         audit_access(
             request=request,
-            session=session,
+            user=user,
             event_type="DB_TEST_ACCESSED",
             result="SUCCESS",
             resource_name="/api/db/test",
@@ -67,7 +90,7 @@ def api_test_database_connection(request: Request):
             category="errors",
             event_type="DB_TEST_ERROR",
             result="FAILED",
-            user=session,
+            user=user,
             request_data=build_request_audit_data(request),
             resource={
                 "resource_type": "database_api",
@@ -86,14 +109,14 @@ def api_test_database_connection(request: Request):
 
 @router.get("/databases")
 def api_list_databases(request: Request):
-    session = require_authenticated_viewer(request)
+    user = require_authenticated_viewer(request)
 
     try:
         data = list_databases()
 
         audit_access(
             request=request,
-            session=session,
+            user=user,
             event_type="DB_DATABASES_ACCESSED",
             result="SUCCESS",
             resource_name="/api/db/databases",
@@ -113,7 +136,7 @@ def api_list_databases(request: Request):
             category="errors",
             event_type="DB_DATABASES_ERROR",
             result="FAILED",
-            user=session,
+            user=user,
             request_data=build_request_audit_data(request),
             resource={
                 "resource_type": "database_api",
@@ -131,15 +154,18 @@ def api_list_databases(request: Request):
 
 
 @router.get("/tables")
-def api_list_tables(request: Request, limit: int = 50):
-    session = require_authenticated_viewer(request)
+def api_list_tables(
+    request: Request,
+    limit: int = 50,
+):
+    user = require_authenticated_viewer(request)
 
     try:
         data = list_tables(limit=limit)
 
         audit_access(
             request=request,
-            session=session,
+            user=user,
             event_type="DB_TABLES_ACCESSED",
             result="SUCCESS",
             resource_name="/api/db/tables",
@@ -160,7 +186,7 @@ def api_list_tables(request: Request, limit: int = 50):
             category="errors",
             event_type="DB_TABLES_ERROR",
             result="FAILED",
-            user=session,
+            user=user,
             request_data=build_request_audit_data(request),
             resource={
                 "resource_type": "database_api",

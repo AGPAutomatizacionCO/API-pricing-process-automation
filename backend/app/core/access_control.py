@@ -1,4 +1,4 @@
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 
 from app.core.config import get_settings
 
@@ -17,7 +17,7 @@ ROLE_PRIORITY = {
 }
 
 
-def _parse_user_list(raw_value: str) -> list[str]:
+def _parse_csv(raw_value: str) -> list[str]:
     if not raw_value:
         return []
 
@@ -40,70 +40,71 @@ def parse_allowed_users() -> dict[str, str]:
     ]
 
     for role, raw_users in role_sources:
-        for username in _parse_user_list(raw_users):
-            current_role = users.get(username)
+        for email in _parse_csv(raw_users):
+            current_role = users.get(email)
 
             if not current_role:
-                users[username] = role
+                users[email] = role
                 continue
 
             if ROLE_PRIORITY[role] > ROLE_PRIORITY[current_role]:
-                users[username] = role
+                users[email] = role
 
     return users
 
 
-def require_user_in_access_list(username: str) -> dict:
+def require_user_in_access_list(email: str) -> dict:
     settings = get_settings()
-
-    normalized_username = username.lower().strip()
+    normalized_email = email.lower().strip()
 
     if not settings.access_policy_enabled:
         return {
-            "username": normalized_username,
+            "email": normalized_email,
+            "username": normalized_email,
             "role": "ADMIN",
         }
 
     allowed_users = parse_allowed_users()
 
-    if normalized_username not in allowed_users:
+    if normalized_email not in allowed_users:
         raise HTTPException(
-            status_code=403,
-            detail="User not authorized",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User not authorized.",
         )
 
     return {
-        "username": normalized_username,
-        "role": allowed_users[normalized_username],
+        "email": normalized_email,
+        "username": normalized_email,
+        "role": allowed_users[normalized_email],
     }
 
 
 def require_roles(
-    session_data: dict,
+    user: dict,
     allowed_roles: list[str],
 ) -> None:
-    user_role = session_data.get("role")
+    user_role = user.get("role")
 
     if user_role not in allowed_roles:
         raise HTTPException(
-            status_code=403,
-            detail="Insufficient permissions",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions.",
         )
 
 
-def is_admin(session_data: dict) -> bool:
-    return session_data.get("role") == "ADMIN"
+def is_admin(user: dict) -> bool:
+    return user.get("role") == "ADMIN"
 
 
-def is_analyst(session_data: dict) -> bool:
-    return session_data.get("role") in {
+def is_analyst(user: dict) -> bool:
+    return user.get("role") in {
         "ADMIN",
         "ANALYST",
     }
 
 
-def is_viewer(session_data: dict) -> bool:
-    return session_data.get("role") in {
+def is_viewer(user: dict) -> bool:
+    return user.get("role") in {
         "ADMIN",
         "ANALYST",
         "VIEWER",

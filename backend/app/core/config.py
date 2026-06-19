@@ -14,10 +14,15 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
 
+    easy_auth_enabled: bool = True
+    local_auth_enabled: bool = True
+    local_auth_email: str = "miuser@agpglass.com"
+    local_auth_name: str = "Usuario Local"
+
     sql_server: str = ""
     sql_database: str = ""
     sql_driver: str = "ODBC Driver 17 for SQL Server"
-    sql_trusted_connection: bool = True
+    sql_trusted_connection: bool = False
     sql_username: str | None = None
     sql_password: str | None = None
 
@@ -31,15 +36,12 @@ class Settings(BaseSettings):
     analyst_users: str = ""
     viewer_users: str = ""
 
-    entra_tenant_id: str = ""
-    entra_frontend_client_id: str = ""
-    entra_issuer: str = ""
+    admin_groups: str = ""
+    analyst_groups: str = ""
+    viewer_groups: str = ""
 
-    session_cookie_name: str = "pricing_session"
-    session_secret_key: str = "CHANGE_ME"
-    session_expire_minutes: int = 480
-    session_cookie_secure: bool = False
-    session_cookie_samesite: str = "lax"
+    log_level: str = "INFO"
+    audit_log_enabled: bool = True
 
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE),
@@ -54,14 +56,22 @@ class Settings(BaseSettings):
             if origin.strip()
         ]
 
-    def get_entra_issuer(self) -> str:
-        if self.entra_issuer:
-            return self.entra_issuer
+    def get_admin_users(self) -> set[str]:
+        return self._split_csv_to_set(self.admin_users)
 
-        if not self.entra_tenant_id:
-            return ""
+    def get_analyst_users(self) -> set[str]:
+        return self._split_csv_to_set(self.analyst_users)
 
-        return f"https://login.microsoftonline.com/{self.entra_tenant_id}/v2.0"
+    def get_viewer_users(self) -> set[str]:
+        return self._split_csv_to_set(self.viewer_users)
+
+    @staticmethod
+    def _split_csv_to_set(value: str) -> set[str]:
+        return {
+            item.strip().lower()
+            for item in value.split(",")
+            if item.strip()
+        }
 
 
 @lru_cache

@@ -1,27 +1,29 @@
 from fastapi import Request
 
-from app.core.access_control import require_roles
-from app.core.session import get_session_from_request
+from app.core.access_control import (
+    require_roles,
+    require_user_in_access_list,
+)
+from app.core.easy_auth import get_authenticated_user
 
 
-def get_current_session(request: Request) -> dict:
-    return get_session_from_request(request)
+def get_current_user(request: Request) -> dict:
+    user = get_authenticated_user(request)
+    access_user = require_user_in_access_list(user["email"])
+
+    return {
+        **user,
+        "role": access_user["role"],
+    }
 
 
-def require_admin(session: dict) -> None:
-    require_roles(session, ["ADMIN"])
+def require_admin(user: dict) -> None:
+    require_roles(user, ["ADMIN"])
 
 
-def require_analyst(session: dict) -> None:
-    require_roles(session, ["ADMIN", "ANALYST"])
+def require_analyst(user: dict) -> None:
+    require_roles(user, ["ADMIN", "ANALYST"])
 
 
-def require_viewer(session: dict) -> None:
-    require_roles(
-        session,
-        [
-            "ADMIN",
-            "ANALYST",
-            "VIEWER",
-        ],
-    )
+def require_viewer(user: dict) -> None:
+    require_roles(user, ["ADMIN", "ANALYST", "VIEWER"])
