@@ -44,8 +44,11 @@ app.add_middleware(
     allow_headers=[
         "Authorization",
         "Content-Type",
+        "If-Match",
         "X-Requested-With",
     ],
+    # Sin esto el navegador no puede leer el ETag para editar con control de concurrencia.
+    expose_headers=["ETag", "X-Request-ID"],
 )
 
 

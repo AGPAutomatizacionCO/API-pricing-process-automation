@@ -47,3 +47,19 @@ devuelve 401 sin caer a Easy Auth. Cuando el frontend ya use MSAL, apagar Easy A
 ## Pruebas
 `pytest backend/tests/test_msal_auth.py`: token válido, expirado, audiencia/tenant/issuer erróneos, sin scope,
 sin rol, firmado con otra llave, basura, y header X-MS-* falsificado con Easy Auth apagado.
+
+## Registros creados (2026-10-05, por agente de configuración, revisados por humano)
+Identificadores (no son secretos). Tenant `10f1df46-3600-406b-8233-aa54d28fe447`.
+
+| Recurso | Nombre | ID |
+|---|---|---|
+| App registration API | `agp-co-finanzas-pricing-api` | appId `f3db0138-b23c-4689-80b1-93093db50550` (= `MSAL_CLIENT_ID`) |
+| App registration SPA | `agp-co-finanzas-pricing-spa` | appId `df75dc70-5982-4a44-93be-c1f41a71cb5a` (= `clientId` de msal-browser) |
+| Grupos | `AGP-APP-PRICING-ADMIN` / `-ANALYST` / `-VIEWER` | `14f8f4c4-…` / `7dca9e80-…` / `159b6fc4-…` (sin miembros) |
+
+- API: single-tenant, token v2, scope `access_as_user`, app roles `Pricing.Admin/Analyst/Viewer`, "Assignment required" activado.
+- SPA: plataforma SPA (sin secret), redirects a producción y `http://localhost:5173`, SPA preautorizada en el scope de la API.
+- Pendiente: usuarios de prueba (uno en `AGP-APP-PRICING-ANALYST`, otro fuera de todos los grupos) para verificar el token real.
+- `AGPCOL-Secrets` es la app registration del Easy Auth actual: no se toca. `pricing-deploy` NO sirve para el CD (sin credenciales federadas, Contributor amplio).
+- App settings de la web app (aplicar en ventana acordada; reinician la app): `MSAL_AUTH_ENABLED=true`, `MSAL_TENANT_ID`, `MSAL_CLIENT_ID`,
+  `MSAL_REQUIRED_SCOPE=access_as_user`, y `EASY_AUTH_ENABLED=true` solo durante la transición.
