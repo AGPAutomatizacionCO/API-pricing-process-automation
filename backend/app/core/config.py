@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     sql_trusted_connection: bool = False
     sql_username: str | None = None
     sql_password: str | None = None
+    # 'sql' = usuario/contrasena; 'msi' = Managed Identity de la web app (sin contrasena).
+    # Con 'msi', sql_msi_client_id es el clientId de la identidad asignada por el usuario.
+    sql_auth_mode: str = "sql"
+    sql_msi_client_id: str = ""
 
     frontend_origins: str = (
         "http://localhost:5173,"

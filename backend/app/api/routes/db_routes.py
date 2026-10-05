@@ -34,9 +34,10 @@ def require_authenticated_viewer(request: Request) -> dict:
         "role": access_user["role"],
     }
 
+    # Estos endpoints listan servidores/bases/tablas: informacion de diagnostico solo para ADMIN.
     require_roles(
         authenticated_user,
-        ["ADMIN", "ANALYST", "VIEWER"],
+        ["ADMIN"],
     )
 
     return authenticated_user

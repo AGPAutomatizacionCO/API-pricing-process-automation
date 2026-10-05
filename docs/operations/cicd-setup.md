@@ -41,17 +41,22 @@ Mientras `AZURE_CLIENT_ID` no exista como variable, `cd.yml` solo ejecuta las pr
 Tablas (`backend/sql/001_pricing_schema.sql`): `App_Finanzas_Pricing_Cotizacion`, `_CotizacionPieza`, `_Formula`, `_Auditoria`. Área asumida: **Finanzas** (PROYECTO_CONTEXT: "área VIP Finanzas / Pricing"). Rollback manual en `backend/sql/rollback/`.
 Variables de BD con prefijo propio: hoy `SQL_*`; si TI lo exige, renombrar a `PRICING_DB_*` (el catálogo pide un prefijo que diga a qué base apunta).
 
-## Hecho (2026-10-05)
-- Plan `ASP-AGPColombia-8785`: F1 → **B1** (frontend verificado: Running, Easy Auth responde 401 a anónimos).
-- GitHub `AGPAutomatizacionCO/API-pricing-process-automation`: entorno **`prod`** (revisor: BradlyAlejandroAGP; despliegue solo desde `main`) y variables
-  `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `APP_NAME`, `ACR_PULL_IDENTITY_CLIENT_ID` (ninguna es secreta).
-- Código alineado con el kit: puerto 5000, `MSAL_*`, imagen y entorno nombrados según la convención.
+## Hecho (a 2026-10-05)
+- Plan `ASP-AGPColombia-8785`: F1 → **B1** (frontend verificado: Running; Easy Auth responde 401 a anónimos).
+- GitHub (API): entorno **`prod`** (revisor BradlyAlejandroAGP, solo desde `main`), variables no secretas (`AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`,
+  `AZURE_RESOURCE_GROUP`, `APP_NAME`, `ACR_PULL_IDENTITY_CLIENT_ID`, `SQL_SERVER`, `SQL_DATABASE`) y **`main` protegido** (PR + 1 aprobación + checks `test` y `docker-build`).
+- Entra: app registrations de la API y la SPA, app roles, 3 grupos `AGP-APP-PRICING-*` y "Assignment required" (ver `docs/security/msal-setup.md`).
+- Tablas `App_Finanzas_Pricing_*` creadas en `agpc-productivity`; CRUD probado de punta a punta contra la base real (con limpieza).
+- Código: MSAL JWT, Managed Identity para SQL (`SQL_AUTH_MODE=msi`), diagnóstico de BD solo ADMIN, CORS con `If-Match`/`ETag`, puerto 5000.
+- Frontend (PR AGP-Corp/pricing-process-automation#1): capa de sincronización apagada por defecto + proxy `/api` de nginx.
+- Auto-fix del PR #1 activado.
 
-## Pendiente
-1. **Identidad OIDC de GitHub:** ejecutar `infra/setup-oidc.sh` una vez, con una cuenta Owner del grupo de recursos. Crea la identidad administrada `oidc-msi-pricing-process-automation-api` con DOS credenciales federadas (`ref:refs/heads/main` para el job build y `environment:prod` para el deploy con aprobación), le da `AcrPush` sobre `agpcolit` y `Website Contributor` solo sobre la web app, y muestra el `AZURE_CLIENT_ID` para cargarlo como variable del repo. Hasta que esa variable exista, el CD solo ejecuta pruebas.
-2. **Ejecutar `001_pricing_schema.sql` en `agpc-productivity`** (SSMS/Azure Data Studio con un login con DDL, o `db-migrate.yml` cuando exista la identidad OIDC) y crear el usuario contenido para la Managed Identity (`db_datareader`/`db_datawriter`) y usuario DDL solo para `db-migrate.yml`.
-3. **App registrations MSAL** (API y SPA), app roles y grupos `AGP-APP-PRICING-*` (`docs/security/msal-setup.md`).
-4. **Proxy `/api` en el nginx del frontend** y la variable `API_HEALTH_URL` para el smoke test público.
-5. **Key Vault**: secretos de conexión SQL bajo `agp-desarrollos-secrets` y acceso de la Managed Identity.
-6. Proteger `main` (PR obligatorio + CI verde) y añadir un segundo revisor en `prod`.
-7. Primer despliegue del sidecar **en ventana acordada**, avisando a los usuarios.
+## Pendiente (todo requiere a una persona con permisos; ver `runbook-primer-despliegue.md`)
+1. **`AZURE_CLIENT_ID`**: ejecutar `infra/setup-oidc.sh` (Owner del RG). Sin esto el CD solo ejecuta pruebas.
+2. **Grants SQL** de mínimo privilegio: `backend/sql/manual/002_grants_pricing_identity.sql` (admin Entra de SQL).
+3. **Usuarios de prueba** en `AGP-APP-PRICING-ANALYST` y uno fuera de los grupos, para verificar el token MSAL real.
+4. **Excluir `/api/*` de Easy Auth** (runbook, paso 3) y aplicar las app settings (paso 2): reinician la app, en ventana acordada.
+5. **Aprobación humana de ambos PRs** (API #1 y frontend #1) y un segundo revisor en `prod` (p. ej. dueña funcional o TI).
+6. **Seguridad de la base (TI):** los servidores `agpcol` y `agpcolsap` tienen una regla de firewall `INTERNET` (0.0.0.0–255.255.255.255). No se modificó.
+7. **Credenciales propias de pricing** en Key Vault si se usara el modo `sql` (no reutilizar `AGPCOL-USER/PASSWORD`). Con `msi` no hacen falta.
+8. Verificaciones que solo se pueden hacer en Azure: sidecar en B1 y `Authorization: Bearer` a través de Easy Auth.
