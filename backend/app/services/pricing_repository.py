@@ -139,6 +139,10 @@ def get_cotizacion(codigo: str) -> dict:
 def create_cotizacion(payload: dict, *, user: dict, ip: str | None) -> dict:
     with get_connection() as conn:
         cur = conn.cursor()
+        # El indice unico incluye las eliminadas (borrado logico): el codigo no se reutiliza.
+        cur.execute("SELECT 1 FROM dbo.App_Finanzas_Pricing_Cotizacion WHERE Codigo = ?", payload["codigo"])
+        if cur.fetchone():
+            raise Conflict("Ya existe una cotizacion con ese codigo.")
         cur.execute(
             """
             INSERT INTO dbo.App_Finanzas_Pricing_Cotizacion
