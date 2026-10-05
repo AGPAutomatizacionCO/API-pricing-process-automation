@@ -53,15 +53,18 @@ jobs:
             echo "::notice::Azure no configurado (faltan variables del repo). Solo se ejecutan las pruebas."
           fi
 
-  # Politica de aprobacion de produccion. HOY (norma vigente: harness-policy.md) todo despliegue a produccion
-  # exige aprobacion humana => siempre entorno "prod". La excepcion para cambios de personas autorizadas
-  # (docs/decisions/ADR-001) queda IMPLEMENTADA pero APAGADA: solo se activa con la variable
-  # AUTO_DEPLOY_ENABLED=true, que se define unicamente tras aprobar ese ADR.
+  # Politica de aprobacion de produccion (docs/decisions/ADR-001). Por defecto todo despliegue a produccion
+  # exige aprobacion humana => entorno "prod" (norma: harness-policy.md). La excepcion para cambios de personas
+  # autorizadas (entorno "prod-auto") esta ACTIVA solo si AUTO_DEPLOY_ENABLED=true; para apagarla basta
+  # ponerla en false. La IA no puede aprobar produccion: sus cambios siempre van a "prod".
   policy:
     needs: [configured]
     runs-on: ubuntu-latest
     outputs:
       env: ${{ steps.p.outputs.env }}
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - id: p
         env:    # valores no confiables por variables de entorno, nunca interpolados en el script
@@ -70,15 +73,29 @@ jobs:
           ACTOR: ${{ github.actor }}
           EVENT: ${{ github.event_name }}
           MSG: ${{ github.event.head_commit.message }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Ante cualquier duda o fallo de verificacion => prod (aprobacion humana).
           env=prod; why="aprobacion humana (norma vigente)"
           if [ "$ENABLED" = "true" ] && [ "$EVENT" = "push" ]; then
             if ! echo "$USERS" | jq -e --arg a "$ACTOR" 'index($a) != null' >/dev/null 2>&1; then
               why="el autor ($ACTOR) no esta en la lista autorizada"
-            elif echo "$MSG" | grep -qiE 'co-authored-by:.*(claude|anthropic)|generated with.*claude'; then
-              why="cambio asistido por IA: la IA no puede aprobar produccion"
             else
-              env=prod-auto; why="excepcion ADR-001: cambio de persona autorizada, sin asistencia de IA"
+              pr=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '.[0].number // empty' 2>/dev/null || true)
+              if [ -z "$pr" ]; then
+                why="el commit no llego por un PR (push directo): requiere aprobacion"
+              elif ! texts=$(gh api "repos/$REPO/pulls/$pr/commits" --paginate --jq '.[].commit.message' 2>/dev/null) \
+                   || ! body=$(gh api "repos/$REPO/pulls/$pr" --jq '.body // ""' 2>/dev/null); then
+                why="no se pudieron revisar los commits del PR #$pr: requiere aprobacion"
+              # Se revisan TODOS los commits del PR y su descripcion: en una fusion con commit de merge,
+              # el mensaje del commit que llega a main no trae los Co-Authored-By de los commits del PR.
+              elif printf '%s\n%s\n%s' "$texts" "$body" "$MSG" | grep -qiE 'co-authored-by:.*(claude|anthropic)|generated with.*claude'; then
+                why="cambio asistido por IA (commits o descripcion del PR #$pr): la IA no puede aprobar produccion"
+              else
+                env=prod-auto; why="excepcion ADR-001: PR #$pr de persona autorizada, sin asistencia de IA"
+              fi
             fi
           fi
           echo "env=$env" >> "$GITHUB_OUTPUT"

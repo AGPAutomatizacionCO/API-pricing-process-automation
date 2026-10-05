@@ -13,8 +13,8 @@ if ((Read-Host "Crear la identidad '$name' y asignar roles minimos en '$rg'? (es
 $id = az identity show -g $rg -n $name -o json 2>$null | ConvertFrom-Json
 if (-not $id) { $id = az identity create -g $rg -n $name -o json | ConvertFrom-Json }
 
-# Una credencial por tipo de job de cd.yml: build (rama main) y deploy (entorno prod).
-foreach ($c in @(@{n='gh-main'; s="repo:${repo}:ref:refs/heads/main"}, @{n='gh-prod'; s="repo:${repo}:environment:prod"})) {
+# Una credencial por tipo de job de cd.yml: build (rama main) y deploy (entorno prod, o prod-auto para cambios de personas autorizadas: ADR-001).
+foreach ($c in @(@{n='gh-main'; s="repo:${repo}:ref:refs/heads/main"}, @{n='gh-prod'; s="repo:${repo}:environment:prod"}, @{n='gh-prod-auto'; s="repo:${repo}:environment:prod-auto"})) {
   $ex = az identity federated-credential list -g $rg --identity-name $name --query "[?name=='$($c.n)']" -o json | ConvertFrom-Json
   if (-not $ex) {
     az identity federated-credential create -g $rg --identity-name $name --name $c.n --issuer 'https://token.actions.githubusercontent.com' --subject $c.s --audiences 'api://AzureADTokenExchange' -o none
