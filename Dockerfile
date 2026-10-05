@@ -3,6 +3,8 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV ACCEPT_EULA=Y
+# La imagen instala msodbcsql18; el valor por defecto de la app es el driver 17.
+ENV SQL_DRIVER="ODBC Driver 18 for SQL Server"
 
 WORKDIR /app
 
@@ -32,6 +34,6 @@ COPY backend /app/backend
 
 WORKDIR /app/backend
 
-EXPOSE 8000
+EXPOSE 5000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "5000"]

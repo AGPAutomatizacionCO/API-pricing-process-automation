@@ -14,3 +14,7 @@ frontend/dist
 
 *.log
 *.jsonl
+backend/tests
+.pytest_cache
+backend/sql
+backend/scripts

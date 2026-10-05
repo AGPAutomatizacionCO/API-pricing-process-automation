@@ -1,0 +1,35 @@
+name: DB Migrate
+
+# SOLO manual. Aplica backend/sql/*.sql (idempotentes) a la base de pricing.
+# Exige aprobacion (Environment prod) y usa un login Entra con permiso DDL solo para este fin.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Escribe "migrar" para confirmar'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  migrate:
+    if: ${{ github.event.inputs.confirm == 'migrar' }}
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Aplicar scripts SQL en orden
+        run: |
+          # go-sqlcmd con autenticacion de Entra, sin contrasenas.
+          curl -fsSL https://github.com/microsoft/go-sqlcmd/releases/latest/download/sqlcmd-linux-amd64.tar.bz2 | tar -xj
+          for f in $(ls backend/sql/*.sql | sort); do
+            echo "== $f"
+            ./sqlcmd -S "${{ vars.SQL_SERVER }}" -d "${{ vars.SQL_DATABASE }}" --authentication-method ActiveDirectoryDefault -b -i "$f"
+          done

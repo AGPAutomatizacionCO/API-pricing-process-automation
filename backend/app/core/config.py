@@ -12,19 +12,33 @@ class Settings(BaseSettings):
     app_name: str = "AGP Pricing Process API"
     app_env: str = "local"
     app_host: str = "0.0.0.0"
-    app_port: int = 8000
+    app_port: int = 5000
 
     easy_auth_enabled: bool = True
     local_auth_enabled: bool = True
     local_auth_email: str = "miuser@agpglass.com"
     local_auth_name: str = "Usuario Local"
 
+    # MSAL / Entra ID: la API valida el JWT Bearer emitido para su app registration.
+    msal_auth_enabled: bool = False
+    msal_tenant_id: str = ""
+    msal_client_id: str = ""
+    msal_required_scope: str = "access_as_user"
+    # Mapeo app role de Entra -> rol interno (los app roles se asignan a grupos en Entra).
+    msal_role_admin: str = "Pricing.Admin"
+    msal_role_analyst: str = "Pricing.Analyst"
+    msal_role_viewer: str = "Pricing.Viewer"
+
     sql_server: str = ""
     sql_database: str = ""
-    sql_driver: str = "ODBC Driver 17 for SQL Server"
+    sql_driver: str = "ODBC Driver 18 for SQL Server"
     sql_trusted_connection: bool = False
     sql_username: str | None = None
     sql_password: str | None = None
+    # 'sql' = usuario/contrasena; 'msi' = Managed Identity de la web app (sin contrasena).
+    # Con 'msi', sql_msi_client_id es el clientId de la identidad asignada por el usuario.
+    sql_auth_mode: str = "sql"
+    sql_msi_client_id: str = ""
 
     frontend_origins: str = (
         "http://localhost:5173,"

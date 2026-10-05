@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import HTTPException, Request, status
 
 from app.core.config import get_settings
+from app.core.msal_auth import validate_bearer_token
 
 
 def _decode_easy_auth_principal(raw_value: str) -> dict[str, Any]:
@@ -33,7 +34,16 @@ def _get_claim(principal: dict[str, Any], claim_type: str) -> str | None:
 def get_authenticated_user(request: Request) -> dict[str, Any]:
     settings = get_settings()
 
-    principal_raw = request.headers.get("x-ms-client-principal")
+    authorization = request.headers.get("authorization", "")
+    if settings.msal_auth_enabled and authorization.lower().startswith("bearer "):
+        # Con un Bearer presente, un token invalido es 401: no se cae a otros metodos.
+        return validate_bearer_token(authorization[7:].strip())
+
+    # Los headers x-ms-* solo son confiables si Easy Auth esta activo en el App Service;
+    # si no, cualquier cliente podria falsificarlos.
+    principal_raw = (
+        request.headers.get("x-ms-client-principal") if settings.easy_auth_enabled else None
+    )
 
     if principal_raw:
         principal = _decode_easy_auth_principal(principal_raw)

@@ -1,0 +1,172 @@
+name: CD
+
+# Una sola web app (pricing-process-automation): la API corre como contenedor sidecar "api"
+# junto al frontend (contenedor "main"). Cada release de la API solo toca el sidecar.
+#
+# Push a main -> pruebas -> imagen a ACR (tag = SHA) -> ESPERA APROBACION (Environment prod)
+#             -> actualiza el sidecar -> verifica que la app siga Running.
+# No hay ningun despliegue sin aprobacion humana, y no se tocan los contenedores del frontend.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'requirements.txt'
+      - 'Dockerfile'
+      - '.github/workflows/cd.yml'
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Redesplegar o rollback: tag (SHA) ya publicado en ACR. Vacio = construir el commit actual.'
+        required: false
+
+concurrency:
+  group: cd-api
+  cancel-in-progress: false
+
+permissions:
+  id-token: write   # OIDC con Azure (sin secretos guardados)
+  contents: read
+
+env:
+  ACR_NAME: agpcolit
+  ACR_LOGIN_SERVER: agpcolit-abh2b3a5cvf7apcs.azurecr.io
+  IMAGE_NAME: pricing-process-automation-api
+  SIDECAR_NAME: api
+  API_PORT: '5000'
+
+jobs:
+  # Si aun no se configuro Azure (variables del repo), el pipeline solo prueba y avisa;
+  # no falla ni despliega nada.
+  configured:
+    runs-on: ubuntu-latest
+    outputs:
+      ok: ${{ steps.chk.outputs.ok }}
+    steps:
+      - id: chk
+        run: |
+          if [ -n "${{ vars.AZURE_CLIENT_ID }}" ] && [ -n "${{ vars.AZURE_TENANT_ID }}" ] \
+             && [ -n "${{ vars.AZURE_SUBSCRIPTION_ID }}" ] && [ -n "${{ vars.APP_NAME }}" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Azure no configurado (faltan variables del repo). Solo se ejecutan las pruebas."
+          fi
+
+  # Politica de aprobacion de produccion. HOY (norma vigente: harness-policy.md) todo despliegue a produccion
+  # exige aprobacion humana => siempre entorno "prod". La excepcion para cambios de personas autorizadas
+  # (docs/decisions/ADR-001) queda IMPLEMENTADA pero APAGADA: solo se activa con la variable
+  # AUTO_DEPLOY_ENABLED=true, que se define unicamente tras aprobar ese ADR.
+  policy:
+    needs: [configured]
+    runs-on: ubuntu-latest
+    outputs:
+      env: ${{ steps.p.outputs.env }}
+    steps:
+      - id: p
+        env:    # valores no confiables por variables de entorno, nunca interpolados en el script
+          ENABLED: ${{ vars.AUTO_DEPLOY_ENABLED }}
+          USERS: ${{ vars.AUTO_DEPLOY_USERS }}
+          ACTOR: ${{ github.actor }}
+          EVENT: ${{ github.event_name }}
+          MSG: ${{ github.event.head_commit.message }}
+        run: |
+          env=prod; why="aprobacion humana (norma vigente)"
+          if [ "$ENABLED" = "true" ] && [ "$EVENT" = "push" ]; then
+            if ! echo "$USERS" | jq -e --arg a "$ACTOR" 'index($a) != null' >/dev/null 2>&1; then
+              why="el autor ($ACTOR) no esta en la lista autorizada"
+            elif echo "$MSG" | grep -qiE 'co-authored-by:.*(claude|anthropic)|generated with.*claude'; then
+              why="cambio asistido por IA: la IA no puede aprobar produccion"
+            else
+              env=prod-auto; why="excepcion ADR-001: cambio de persona autorizada, sin asistencia de IA"
+            fi
+          fi
+          echo "env=$env" >> "$GITHUB_OUTPUT"
+          echo "Entorno de despliegue: **$env** ($why)" >> "$GITHUB_STEP_SUMMARY"
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: |
+          sudo apt-get update -y && sudo apt-get install -y --no-install-recommends unixodbc-dev
+          pip install -r requirements.txt pytest httpx
+      - run: python -m pytest tests -q
+        working-directory: backend
+
+  build:
+    needs: [configured, test]
+    if: needs.configured.outputs.ok == 'true' && github.event.inputs.image_tag == ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Build y push a ACR (tag = SHA, inmutable; no se usa latest)
+        run: |
+          az acr login --name "$ACR_NAME"
+          docker build -t "$ACR_LOGIN_SERVER/$IMAGE_NAME:${{ github.sha }}" .
+          docker push "$ACR_LOGIN_SERVER/$IMAGE_NAME:${{ github.sha }}"
+
+  deploy:
+    needs: [configured, build, policy]
+    # build se omite en redespliegues por tag; igual se permite continuar.
+    if: always() && needs.configured.outputs.ok == 'true' && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ubuntu-latest
+    # prod = con revisores obligatorios (por defecto). prod-auto solo aplica si se aprueba el ADR-001.
+    environment: ${{ needs.policy.outputs.env }}
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Registrar version actual del sidecar (para rollback)
+        run: |
+          prev=$(az webapp sitecontainers show -g '${{ vars.AZURE_RESOURCE_GROUP }}' -n '${{ vars.APP_NAME }}' \
+                   --container-name "$SIDECAR_NAME" --query image -o tsv 2>/dev/null || echo "(sin sidecar previo)")
+          echo "Version anterior del sidecar: $prev"
+          echo "Version anterior del sidecar: \`$prev\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Rollback: ejecutar este workflow manualmente con image_tag = tag anterior." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Crear o actualizar el sidecar de la API (el contenedor main no se toca)
+        run: |
+          IMAGE="$ACR_LOGIN_SERVER/$IMAGE_NAME:${{ github.event.inputs.image_tag || github.sha }}"
+          if az webapp sitecontainers show -g '${{ vars.AZURE_RESOURCE_GROUP }}' -n '${{ vars.APP_NAME }}' \
+               --container-name "$SIDECAR_NAME" >/dev/null 2>&1; then
+            az webapp sitecontainers update -g '${{ vars.AZURE_RESOURCE_GROUP }}' -n '${{ vars.APP_NAME }}' \
+              --container-name "$SIDECAR_NAME" --image "$IMAGE"
+          else
+            az webapp sitecontainers create -g '${{ vars.AZURE_RESOURCE_GROUP }}' -n '${{ vars.APP_NAME }}' \
+              --container-name "$SIDECAR_NAME" --image "$IMAGE" --target-port "$API_PORT" --is-main false \
+              --user-assigned-identity '${{ vars.ACR_PULL_IDENTITY_CLIENT_ID }}'
+          fi
+
+      - name: Verificar que la app siga en ejecucion
+        run: |
+          for i in $(seq 1 12); do
+            state=$(az webapp show -g '${{ vars.AZURE_RESOURCE_GROUP }}' -n '${{ vars.APP_NAME }}' --query state -o tsv)
+            [ "$state" = "Running" ] && { echo "App Running"; exit 0; }
+            echo "estado=$state, esperando ($i/12)..."; sleep 10
+          done
+          echo "::error::la app no volvio a Running. Hacer rollback."; exit 1
+
+      # La API no es publica por si sola: el frontend la expone via proxy (/api). Cuando ese proxy
+      # exista, definir la variable API_HEALTH_URL (p.ej. https://<host>/health) y se verificara aqui.
+      - name: Verificar /health publico (si esta configurado)
+        if: vars.API_HEALTH_URL != ''
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS '${{ vars.API_HEALTH_URL }}'; then echo; echo "OK"; exit 0; fi
+            sleep 10
+          done
+          echo "::error::/health no respondio. Hacer rollback."; exit 1

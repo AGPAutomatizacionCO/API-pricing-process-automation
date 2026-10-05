@@ -9,7 +9,7 @@ from app.core.easy_auth import get_authenticated_user
 
 def get_current_user(request: Request) -> dict:
     user = get_authenticated_user(request)
-    access_user = require_user_in_access_list(user["email"])
+    access_user = require_user_in_access_list(user["email"], user.get("app_roles"))
 
     return {
         **user,
