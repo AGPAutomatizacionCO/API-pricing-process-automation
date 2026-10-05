@@ -53,6 +53,37 @@ jobs:
             echo "::notice::Azure no configurado (faltan variables del repo). Solo se ejecutan las pruebas."
           fi
 
+  # Politica de aprobacion de produccion. HOY (norma vigente: harness-policy.md) todo despliegue a produccion
+  # exige aprobacion humana => siempre entorno "prod". La excepcion para cambios de personas autorizadas
+  # (docs/decisions/ADR-001) queda IMPLEMENTADA pero APAGADA: solo se activa con la variable
+  # AUTO_DEPLOY_ENABLED=true, que se define unicamente tras aprobar ese ADR.
+  policy:
+    needs: [configured]
+    runs-on: ubuntu-latest
+    outputs:
+      env: ${{ steps.p.outputs.env }}
+    steps:
+      - id: p
+        env:    # valores no confiables por variables de entorno, nunca interpolados en el script
+          ENABLED: ${{ vars.AUTO_DEPLOY_ENABLED }}
+          USERS: ${{ vars.AUTO_DEPLOY_USERS }}
+          ACTOR: ${{ github.actor }}
+          EVENT: ${{ github.event_name }}
+          MSG: ${{ github.event.head_commit.message }}
+        run: |
+          env=prod; why="aprobacion humana (norma vigente)"
+          if [ "$ENABLED" = "true" ] && [ "$EVENT" = "push" ]; then
+            if ! echo "$USERS" | jq -e --arg a "$ACTOR" 'index($a) != null' >/dev/null 2>&1; then
+              why="el autor ($ACTOR) no esta en la lista autorizada"
+            elif echo "$MSG" | grep -qiE 'co-authored-by:.*(claude|anthropic)|generated with.*claude'; then
+              why="cambio asistido por IA: la IA no puede aprobar produccion"
+            else
+              env=prod-auto; why="excepcion ADR-001: cambio de persona autorizada, sin asistencia de IA"
+            fi
+          fi
+          echo "env=$env" >> "$GITHUB_OUTPUT"
+          echo "Entorno de despliegue: **$env** ($why)" >> "$GITHUB_STEP_SUMMARY"
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -86,12 +117,12 @@ jobs:
           docker push "$ACR_LOGIN_SERVER/$IMAGE_NAME:${{ github.sha }}"
 
   deploy:
-    needs: [configured, build]
+    needs: [configured, build, policy]
     # build se omite en redespliegues por tag; igual se permite continuar.
     if: always() && needs.configured.outputs.ok == 'true' && (needs.build.result == 'success' || needs.build.result == 'skipped')
     runs-on: ubuntu-latest
-    # Configurar en GitHub: Settings > Environments > prod > Required reviewers.
-    environment: prod
+    # prod = con revisores obligatorios (por defecto). prod-auto solo aplica si se aprueba el ADR-001.
+    environment: ${{ needs.policy.outputs.env }}
     steps:
       - uses: azure/login@v2
         with:
