@@ -18,7 +18,7 @@ router = APIRouter(
 def get_current_user(request: Request):
     try:
         user = get_authenticated_user(request)
-        access_user = require_user_in_access_list(user["email"])
+        access_user = require_user_in_access_list(user["email"], user.get("app_roles"))
 
         response_user = {
             "username": user["email"],
@@ -71,7 +71,7 @@ def get_current_user(request: Request):
 @router.get("/test-protected")
 def test_protected(request: Request):
     user = get_authenticated_user(request)
-    access_user = require_user_in_access_list(user["email"])
+    access_user = require_user_in_access_list(user["email"], user.get("app_roles"))
 
     return {
         "status": "ok",

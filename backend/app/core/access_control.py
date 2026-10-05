@@ -53,9 +53,31 @@ def parse_allowed_users() -> dict[str, str]:
     return users
 
 
-def require_user_in_access_list(email: str) -> dict:
+def role_from_app_roles(app_roles: list[str] | None) -> str | None:
+    """Rol interno de mayor prioridad a partir de los app roles del token de Entra."""
+    settings = get_settings()
+    mapping = {
+        settings.msal_role_admin: "ADMIN",
+        settings.msal_role_analyst: "ANALYST",
+        settings.msal_role_viewer: "VIEWER",
+    }
+    roles = [mapping[r] for r in (app_roles or []) if r in mapping]
+    return max(roles, key=ROLE_PRIORITY.get) if roles else None
+
+
+def require_user_in_access_list(email: str, app_roles: list[str] | None = None) -> dict:
     settings = get_settings()
     normalized_email = email.lower().strip()
+
+    # Token MSAL: los roles vienen de Entra (grupos -> app roles), no de listas de correos.
+    if app_roles is not None:
+        role = role_from_app_roles(app_roles)
+        if not role:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User not authorized.",
+            )
+        return {"email": normalized_email, "username": normalized_email, "role": role}
 
     if not settings.access_policy_enabled:
         return {

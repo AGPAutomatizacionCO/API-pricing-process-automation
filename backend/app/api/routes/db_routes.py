@@ -26,7 +26,7 @@ def require_authenticated_viewer(request: Request) -> dict:
     user = get_authenticated_user(request)
 
     access_user = require_user_in_access_list(
-        user["email"]
+        user["email"], user.get("app_roles")
     )
 
     authenticated_user = {

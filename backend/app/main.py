@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.auth_routes import router as auth_router
 from app.api.routes.db_routes import router as db_router
 from app.api.routes.health_routes import router as health_router
+from app.api.routes.pricing_routes import router as pricing_router
 
 from app.core.audit_logger import ensure_log_files
 from app.core.config import get_settings
@@ -77,6 +78,7 @@ async def request_tracking_middleware(
 app.include_router(health_router)
 app.include_router(db_router)
 app.include_router(auth_router)
+app.include_router(pricing_router)
 
 
 @app.get("/")
