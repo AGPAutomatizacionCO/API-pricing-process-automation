@@ -56,7 +56,8 @@ Variables de BD con prefijo propio: hoy `SQL_*`; si TI lo exige, renombrar a `PR
 2. **Grants SQL** de mínimo privilegio: `backend/sql/manual/002_grants_pricing_identity.sql` (admin Entra de SQL).
 3. **Usuarios de prueba** en `AGP-APP-PRICING-ANALYST` y uno fuera de los grupos, para verificar el token MSAL real.
 4. **Excluir `/api/*` de Easy Auth** (runbook, paso 3) y aplicar las app settings (paso 2): reinician la app, en ventana acordada.
-5. **Aprobación humana de ambos PRs** (API #1 y frontend #1) y un segundo revisor en `prod` (p. ej. dueña funcional o TI).
+5. ~~Aprobación de los PRs~~: ambos PRs (API #1 y frontend #1) ya están fusionados en `main` (2026-10-05; sin aprobación registrada en GitHub: se integraron con permiso de administrador).
+   **Despliegue automático** (ADR-001) ACTIVO para `BradlyAlejandroAGP` y `Maria-GalindoC`; los cambios asistidos por IA siguen pasando por aprobación en `prod`. Registrar la aprobación formal de Gobierno/Tech Lead/DevOps Owner.
 6. **Seguridad de la base (TI):** los servidores `agpcol` y `agpcolsap` tienen una regla de firewall `INTERNET` (0.0.0.0–255.255.255.255). No se modificó.
 7. **Credenciales propias de pricing** en Key Vault si se usara el modo `sql` (no reutilizar `AGPCOL-USER/PASSWORD`). Con `msi` no hacen falta.
 8. Verificaciones que solo se pueden hacer en Azure: sidecar en B1 y `Authorization: Bearer` a través de Easy Auth.

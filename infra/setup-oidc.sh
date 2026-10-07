@@ -4,9 +4,10 @@
 # No se ejecuta desde ningun workflow. Es idempotente en lo posible: si algo ya existe, avisa y sigue.
 #
 # Patron de la zona: una identidad administrada por repo (como las "oidc-msi-xxxx" del Deployment Center).
-# Se usan DOS credenciales federadas porque cd.yml tiene dos tipos de job:
+# Se usan TRES credenciales federadas porque cd.yml tiene tres tipos de job:
 #   - build   (sin Environment)  -> subject  ref:refs/heads/main
-#   - deploy  (Environment prod) -> subject  environment:prod   (el que exige aprobacion humana)
+#   - deploy  (Environment prod)      -> subject  environment:prod       (exige aprobacion humana)
+#   - deploy  (Environment prod-auto) -> subject  environment:prod-auto  (cambios de personas autorizadas, ADR-001)
 set -euo pipefail
 
 REPO="AGPAutomatizacionCO/API-pricing-process-automation"
@@ -24,7 +25,7 @@ az identity create -g "$RG" -n "$IDENTITY" -o none
 CLIENT_ID=$(az identity show -g "$RG" -n "$IDENTITY" --query clientId -o tsv)
 PRINCIPAL_ID=$(az identity show -g "$RG" -n "$IDENTITY" --query principalId -o tsv)
 
-for pair in "gh-main:ref:refs/heads/main" "gh-prod:environment:prod"; do
+for pair in "gh-main:ref:refs/heads/main" "gh-prod:environment:prod" "gh-prod-auto:environment:prod-auto"; do
   name="${pair%%:*}"; subject="repo:${REPO}:${pair#*:}"
   az identity federated-credential create -g "$RG" --identity-name "$IDENTITY" --name "$name" \
     --issuer "https://token.actions.githubusercontent.com" --subject "$subject" \
