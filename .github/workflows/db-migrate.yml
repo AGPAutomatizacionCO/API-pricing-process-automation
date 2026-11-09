@@ -16,7 +16,7 @@ permissions:
 jobs:
   migrate:
     if: ${{ github.event.inputs.confirm == 'migrar' }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, agp-docker]
     environment: prod
     steps:
       - uses: actions/checkout@v4

@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, agp-corp]
     steps:
       - uses: actions/checkout@v4
 
@@ -37,7 +37,7 @@ jobs:
 
   docker-build:
     # Verifica que la imagen construye; no la publica.
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, agp-docker]
     needs: test
     steps:
       - uses: actions/checkout@v4

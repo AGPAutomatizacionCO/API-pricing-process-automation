@@ -39,7 +39,7 @@ jobs:
   # Si aun no se configuro Azure (variables del repo), el pipeline solo prueba y avisa;
   # no falla ni despliega nada.
   configured:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, agp-corp]
     outputs:
       ok: ${{ steps.chk.outputs.ok }}
     steps:
@@ -59,7 +59,7 @@ jobs:
   # ponerla en false. La IA no puede aprobar produccion: sus cambios siempre van a "prod".
   policy:
     needs: [configured]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, agp-corp]
     outputs:
       env: ${{ steps.p.outputs.env }}
     permissions:
@@ -102,7 +102,7 @@ jobs:
           echo "Entorno de despliegue: **$env** ($why)" >> "$GITHUB_STEP_SUMMARY"
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, agp-corp]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -119,7 +119,7 @@ jobs:
   build:
     needs: [configured, test]
     if: needs.configured.outputs.ok == 'true' && github.event.inputs.image_tag == ''
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, agp-docker]
     steps:
       - uses: actions/checkout@v4
       - uses: azure/login@v2
@@ -137,7 +137,7 @@ jobs:
     needs: [configured, build, policy]
     # build se omite en redespliegues por tag; igual se permite continuar.
     if: always() && needs.configured.outputs.ok == 'true' && (needs.build.result == 'success' || needs.build.result == 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, agp-docker]
     # prod = con revisores obligatorios (por defecto). prod-auto solo aplica si se aprueba el ADR-001.
     environment: ${{ needs.policy.outputs.env }}
     steps:
